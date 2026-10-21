@@ -1,0 +1,14 @@
+db_uri: mongodb://10.10.3.5/open5gs
+logger:
+  level: info
+global:
+  max:
+    ue: 1024
+udr:
+  sbi:
+    server:
+      - address: 127.0.0.20
+        port: 7777
+    client:
+      scp:
+        - uri: http://127.0.0.200:7777

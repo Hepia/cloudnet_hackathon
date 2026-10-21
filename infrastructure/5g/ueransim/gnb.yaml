@@ -1,0 +1,18 @@
+mcc: '001'
+mnc: '01'
+nci: '0x000000010'
+idLength: 32
+tac: 1
+
+linkIp: 10.10.4.30      # radio link simulation, towards the UE (radio network)
+ngapIp: 10.10.3.30      # N2 (core network)
+gtpIp: 10.10.3.30       # N3 (core network)
+
+amfConfigs:
+  - address: 10.10.3.10
+    port: 38412
+
+slices:
+  - sst: 1
+
+ignoreStreamIds: true

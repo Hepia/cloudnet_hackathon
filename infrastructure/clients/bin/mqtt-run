@@ -1,0 +1,31 @@
+#!/bin/bash
+# mqtt-run [-i INTERVAL] [-n COUNT] [-t TOPIC] [-s SERVER]
+# Subscribes to lab/# on the MQTT broker, then publishes a JSON message to TOPIC (default
+# lab/<hostname>) every INTERVAL seconds, COUNT times (0 = forever). Received messages are printed
+# with a timestamp, so the arrival frequency can be checked on either side.
+set -uo pipefail
+SERVER=${MQTT_SERVER:-10.10.1.20}
+INTERVAL=${MQTT_INTERVAL:-1}
+COUNT=${MQTT_COUNT:-10}
+TOPIC="lab/$(hostname)"
+while getopts "i:n:t:s:h" o; do
+  case $o in
+    i) INTERVAL=$OPTARG ;; n) COUNT=$OPTARG ;; t) TOPIC=$OPTARG ;; s) SERVER=$OPTARG ;;
+    *) sed -n '2,5p' "$0"; exit 0 ;;
+  esac
+done
+mosquitto_sub -h "$SERVER" -t 'lab/#' -v -F '%I recv %t %p' &
+subpid=$!
+trap 'kill $subpid 2>/dev/null' EXIT
+sleep 0.5
+kill -0 $subpid 2>/dev/null || { echo "mqtt-run: cannot subscribe at $SERVER" >&2; exit 1; }
+i=0
+rc=0
+while [ "$COUNT" -eq 0 ] || [ "$i" -lt "$COUNT" ]; do
+  i=$((i + 1))
+  msg=$(printf '{"seq":%d,"client":"%s","interval":%s,"time":"%s"}' "$i" "$(hostname)" "$INTERVAL" "$(date -u +%FT%T.%3NZ)")
+  if mosquitto_pub -h "$SERVER" -t "$TOPIC" -m "$msg"; then echo "$(date -u +%FT%T.%3NZ) sent $TOPIC $msg"; else rc=1; fi
+  sleep "$INTERVAL"
+done
+sleep 0.5
+exit $rc

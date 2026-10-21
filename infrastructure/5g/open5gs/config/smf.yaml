@@ -1,0 +1,35 @@
+logger:
+  level: info
+global:
+  max:
+    ue: 1024
+smf:
+  sbi:
+    server:
+      - address: 127.0.0.4
+        port: 7777
+    client:
+      scp:
+        - uri: http://127.0.0.200:7777
+  pfcp:
+    server:
+      - address: 10.10.3.10          # N4
+    client:
+      upf:
+        - address: 10.10.3.20
+  gtpc:
+    server:
+      - address: 127.0.0.4
+  gtpu:
+    server:
+      - address: 10.10.3.10
+  metrics:
+    server:
+      - address: 127.0.0.4
+        port: 9090
+  session:
+    - subnet: 10.45.0.0/16
+      gateway: 10.45.0.1
+  dns:
+    - 10.10.1.1                      # no resolver exists in the lab; names come from /etc/hosts
+  mtu: 1400

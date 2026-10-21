@@ -1,0 +1,20 @@
+logger:
+  level: info
+global:
+  max:
+    ue: 1024
+upf:
+  pfcp:
+    server:
+      - address: 10.10.3.20          # N4 towards the SMF
+  gtpu:
+    server:
+      - address: 10.10.3.20          # N3 towards the gNB
+  session:
+    - subnet: 10.45.0.0/16
+      gateway: 10.45.0.1
+      dev: ogstun
+  metrics:
+    server:
+      - address: 10.10.3.20
+        port: 9090

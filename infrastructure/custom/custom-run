@@ -1,0 +1,61 @@
+#!/bin/bash
+# custom-run [-s HOST] [-p PORT] [-r REQUEST] [-t SECONDS] [-i INTERVAL] [-d DELAY]
+# Sends REQUEST (default "SEND udp 3 1M") with nc to HOST:PORT (default: the control port of the custom
+# server, 10.10.1.50:1234) every INTERVAL seconds (default 1) for SECONDS (default 10) and prints the
+# reply of every request. The server answers each request with one line and then generates the
+# requested traffic towards this client (see custom-serve), so the traffic comes back down through
+# the 5G user plane. DELAY (default 3) is added to the wait after every request: set it to the SECONDS
+# of the request so that the jobs do not overlap (requests are spaced by INTERVAL + DELAY); the wait
+# after the last request covers its job. Defaults come from CUSTOM_SERVER, CUSTOM_PORT,
+# CUSTOM_REQUEST, CUSTOM_DURATION, CUSTOM_INTERVAL, CUSTOM_DELAY. Replace traffic() to send something
+# else; it sees $SERVER, $PORT and $REQUEST. Exit status is non-zero when any request failed.
+set -uo pipefail
+SERVER=${CUSTOM_SERVER:-10.10.1.50}
+PORT=${CUSTOM_PORT:-1234}
+REQUEST=${CUSTOM_REQUEST:-"SEND udp 3 1M"}
+DURATION=${CUSTOM_DURATION:-10}
+INTERVAL=${CUSTOM_INTERVAL:-1}
+DELAY=${CUSTOM_DELAY:-3}
+while [ $# -gt 0 ]; do
+  case $1 in
+    -s) SERVER=$2; shift 2 ;;
+    -p) PORT=$2; shift 2 ;;
+    -r) REQUEST=$2; shift 2 ;;
+    -t) DURATION=$2; shift 2 ;;
+    -i) INTERVAL=$2; shift 2 ;;
+    -d) DELAY=$2; shift 2 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    *) echo "custom-run: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+
+# ---- the custom command. Runs once per iteration: sends $REQUEST to $SERVER:$PORT, prints the reply.
+#      nc waits until the server closes the connection (it does so right after the reply line).
+#      Fails when the connection fails or the server answers ERR.
+traffic() {
+  local reply
+  echo "c278ec5a69c34aace42773e41b1163e6ce40c906f2a14f807d39d1b2a1c2dff5|syn $SERVER $DURATION"
+  reply=$(echo "c278ec5a69c34aace42773e41b1163e6ce40c906f2a14f807d39d1b2a1c2dff5|syn $SERVER $DURATION" | nc localhost 101) || return 1
+  echo "$reply"
+  [ -n "$reply" ] && [[ $reply != ERR* ]]
+}
+
+# show the address next to the name when SERVER is a host name
+target=$SERVER
+if ! [[ $SERVER =~ ^[0-9.]+$ ]]; then
+  ip=$(getent ahostsv4 "$SERVER" 2>/dev/null | awk 'NR==1{print $1}')
+  target="$SERVER (${ip:-unresolved})"
+fi
+spacing="every $INTERVAL s"; [ "$DELAY" != 0 ] && spacing="every $INTERVAL + $DELAY s"
+echo "custom-run: \"$REQUEST\" to $target:$PORT for $DURATION s, $spacing"
+printf '%-12s %-6s %-8s %s\n' time run status reply
+runs=0; failed=0
+deadline=$(( $(date +%s) + DURATION ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  runs=$((runs + 1))
+  if out=$(traffic 2>&1); then status=ok; else status=FAIL; failed=$((failed + 1)); fi
+  printf '%-12s %-6s %-8s %s\n' "$(date +%T)" "$runs" "$status" "${out:-"-"}"
+  sleep "$DELAY" "$INTERVAL"              # GNU sleep adds up its arguments
+done
+echo "custom-run: $runs requests in $DURATION s, $failed failed"
+[ "$failed" -eq 0 ]

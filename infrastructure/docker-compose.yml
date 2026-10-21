@@ -1,0 +1,247 @@
+# 5G lab in Docker: Open5GS core and UPF, UERANSIM gNB and UE, a server network and a client
+# network joined by a router container. All addresses are fixed (map in README.md).
+#
+# Isolation: every network uses inhibit_ipv4, so the host gets no address on any bridge and no
+# container can reach the host or the outside. The router container owns the gateway addresses
+# (10.10.1.1, 10.10.2.1) that Docker installs as default route in the other containers.
+name: lab5g
+
+x-bridge-opts: &bridge-opts
+  com.docker.network.bridge.inhibit_ipv4: "true"
+
+# names for the clients and the UE (Docker's DNS only covers a container's own networks)
+x-server-hosts: &server-hosts
+  - "http:10.10.1.10"
+  - "mqtt:10.10.1.20"
+  - "video:10.10.1.30"
+  - "iperf:10.10.1.40"
+  - "custom:10.10.1.50"
+  - "router:10.10.2.1"
+  - "http-client:10.10.2.10"
+  - "mqtt-client:10.10.2.20"
+  - "video-client:10.10.2.30"
+  - "upf:10.10.2.100"
+
+networks:
+  servers:                                  # 10.10.1.0/24  nginx, mqtt, video, iperf, custom server
+    driver_opts:
+      <<: *bridge-opts
+      com.docker.network.bridge.name: lab-servers
+    ipam:
+      config:
+        - subnet: 10.10.1.0/24
+          gateway: 10.10.1.1
+  clients:                                  # 10.10.2.0/24  three clients, UPF exit (N6)
+    driver_opts:
+      <<: *bridge-opts
+      com.docker.network.bridge.name: lab-clients
+    ipam:
+      config:
+        - subnet: 10.10.2.0/24
+          gateway: 10.10.2.1
+  core:                                     # 10.10.3.0/24  N2, N3, N4 and MongoDB
+    driver_opts:
+      <<: *bridge-opts
+      com.docker.network.bridge.name: lab-core
+    ipam:
+      config:
+        - subnet: 10.10.3.0/24
+          gateway: 10.10.3.1
+  radio:                                    # 10.10.4.0/24  simulated radio link gNB <-> UE
+    driver_opts:
+      <<: *bridge-opts
+      com.docker.network.bridge.name: lab-radio
+    ipam:
+      config:
+        - subnet: 10.10.4.0/24
+          gateway: 10.10.4.1
+
+services:
+  # ------------------------------------------------------------------ router
+  router:
+    build: ./router
+    container_name: router
+    hostname: router
+    cap_add: [NET_ADMIN]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.send_redirects: "0"
+    environment:
+      GATEWAYS: "10.10.1.1/24 10.10.2.1/24"
+      UE_SUBNET: 10.45.0.0/16
+      UE_VIA: 10.10.2.100
+    volumes:
+      - ./captures:/captures
+    networks:
+      servers: { ipv4_address: 10.10.1.2 }
+      clients: { ipv4_address: 10.10.2.2 }
+
+  # ----------------------------------------------------------------- servers
+  http:
+    build: ./servers/http
+    container_name: http
+    hostname: http
+    environment:
+      HTTP_FILE_SIZES: "1k 10k 100k 1m 10m 100m"
+    networks:
+      servers: { ipv4_address: 10.10.1.10 }
+    depends_on: [router]
+
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: mqtt
+    hostname: mqtt
+    volumes:
+      - ./servers/mqtt/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks:
+      servers: { ipv4_address: 10.10.1.20 }
+    depends_on: [router]
+
+  video:
+    build: ./servers/video
+    container_name: video
+    hostname: video
+    networks:
+      servers: { ipv4_address: 10.10.1.30 }
+    depends_on: [router]
+
+  iperf:
+    build: ./servers/iperf
+    container_name: iperf
+    hostname: iperf
+    networks:
+      servers: { ipv4_address: 10.10.1.40 }
+    depends_on: [router]
+
+  custom:                                   # server side of your own traffic generator, see custom/
+    build: ./custom
+    image: lab5g-custom
+    container_name: custom
+    hostname: custom
+    command: ["server"]
+    extra_hosts: *server-hosts
+    networks:
+      servers: { ipv4_address: 10.10.1.50 }
+    depends_on: [router]
+
+  # ----------------------------------------------------------------- clients
+  http-client:
+    build: { context: ., dockerfile: clients/http/Dockerfile }
+    container_name: http-client
+    hostname: http-client
+    extra_hosts: *server-hosts
+    networks:
+      clients: { ipv4_address: 10.10.2.10 }
+    depends_on: [router]
+
+  mqtt-client:
+    build: { context: ., dockerfile: clients/mqtt/Dockerfile }
+    container_name: mqtt-client
+    hostname: mqtt-client
+    extra_hosts: *server-hosts
+    networks:
+      clients: { ipv4_address: 10.10.2.20 }
+    depends_on: [router]
+
+  video-client:
+    build: { context: ., dockerfile: clients/video/Dockerfile }
+    container_name: video-client
+    hostname: video-client
+    extra_hosts: *server-hosts
+    networks:
+      clients: { ipv4_address: 10.10.2.30 }
+    depends_on: [router]
+
+  custom-client:                            # client side of your own generator, same image as the server.
+    image: lab5g-custom                     # Shares the network namespace of the UE: it has no address of
+    pull_policy: never                      # its own, its traffic leaves through uesimtun0 (10.45.0.x) and
+    container_name: custom-client           # crosses gNB -> UPF -> router. Hostname, /etc/hosts and routes
+    command: ["client"]                     # are the UE's (extra_hosts/networks cannot be set here).
+    network_mode: "service:ue"
+    depends_on: [ue, custom]
+
+  # ---------------------------------------------------------------------- 5G
+  mongo:
+    image: mongo:8.0
+    container_name: mongo
+    hostname: mongo
+    command: ["mongod", "--bind_ip_all", "--quiet"]
+    environment:
+      MONGO_INITDB_DATABASE: open5gs
+    volumes:
+      - ./5g/mongo-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      core: { ipv4_address: 10.10.3.5 }
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  core:
+    build: ./5g/open5gs
+    image: lab5g-open5gs
+    container_name: core
+    hostname: core
+    command: ["core"]
+    networks:
+      core: { ipv4_address: 10.10.3.10 }
+    depends_on:
+      mongo: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$(pgrep -c -f open5gs-)\" -ge 10 && grep -qw 38412 /proc/net/sctp/eps"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  upf:
+    image: lab5g-open5gs
+    pull_policy: never
+    container_name: upf
+    hostname: upf
+    command: ["upf"]
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    environment:
+      UE_SUBNET: 10.45.0.0/16
+      UE_GATEWAY: 10.45.0.1
+      N6_GATEWAY: 10.10.2.1
+    volumes:
+      - ./captures:/captures
+    networks:
+      core: { ipv4_address: 10.10.3.20 }
+      clients: { ipv4_address: 10.10.2.100 }
+    depends_on: [core, router]
+
+  gnb:
+    build: { context: ., dockerfile: 5g/ueransim/Dockerfile }
+    image: lab5g-ueransim
+    container_name: gnb
+    hostname: gnb
+    command: ["gnb"]
+    volumes:
+      - ./captures:/captures
+    networks:
+      core: { ipv4_address: 10.10.3.30 }
+      radio: { ipv4_address: 10.10.4.30 }
+    depends_on:
+      core: { condition: service_healthy }
+
+  ue:
+    image: lab5g-ueransim
+    pull_policy: never
+    container_name: ue
+    hostname: ue
+    command: ["ue"]
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    extra_hosts: *server-hosts
+    environment:
+      UE_COUNT: "1"
+    networks:
+      radio: { ipv4_address: 10.10.4.40 }
+    depends_on: [gnb, upf]

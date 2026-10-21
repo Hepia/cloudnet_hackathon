@@ -1,0 +1,30 @@
+#!/bin/bash
+# http-get [all | <size> ...] [-n COUNT] [-s SERVER]
+# Downloads files from the HTTP server (default: every file it lists) COUNT times and prints one
+# line per transfer: file, HTTP status, bytes, seconds, throughput in MB/s.
+set -uo pipefail
+SERVER=${HTTP_SERVER:-10.10.1.10}
+COUNT=1
+FILES=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    -n) COUNT=$2; shift 2 ;;
+    -s) SERVER=$2; shift 2 ;;
+    all) shift ;;
+    -h|--help) sed -n '2,4p' "$0"; exit 0 ;;
+    *) FILES+=("${1%.bin}"); shift ;;
+  esac
+done
+if [ ${#FILES[@]} -eq 0 ]; then
+  mapfile -t FILES < <(curl -s --max-time 10 "http://$SERVER/files/" | grep -o 'href="[^"]*\.bin"' | sed 's/href="//; s/\.bin"//')
+fi
+[ ${#FILES[@]} -gt 0 ] || { echo "http-get: no files listed by http://$SERVER/files/" >&2; exit 1; }
+printf '%-8s %-5s %12s %9s %10s\n' file code bytes seconds MB/s
+rc=0
+for ((i = 0; i < COUNT; i++)); do
+  for f in "${FILES[@]}"; do
+    out=$(curl -s --max-time 300 -o /dev/null -w "%{http_code} %{size_download} %{time_total} %{speed_download}" "http://$SERVER/files/$f.bin") || rc=1
+    awk -v f="$f" '{printf "%-8s %-5s %12d %9.3f %10.2f\n", f, $1, $2, $3, $4 / 1048576}' <<< "$out"
+  done
+done
+exit $rc

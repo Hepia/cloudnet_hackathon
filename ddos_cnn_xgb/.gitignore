@@ -1,0 +1,4 @@
+.venv/
+tf_dataset/
+__pycache__/
+best_run/

@@ -1,0 +1,35 @@
+#!/bin/bash
+# video-play [all | low | medium | high ...] [-t SECONDS] [-p udp|tcp] [-s SERVER]
+# Requests each RTSP stream from the video server, receives it (RTP over UDP by default) for
+# SECONDS and reports the stream parameters and the number of frames received.
+set -uo pipefail
+SERVER=${VIDEO_SERVER:-10.10.1.30}
+DURATION=${VIDEO_SECONDS:-10}
+TRANSPORT=udp
+STREAMS=()
+while [ $# -gt 0 ]; do
+  case $1 in
+    -t) DURATION=$2; shift 2 ;;
+    -p) TRANSPORT=$2; shift 2 ;;
+    -s) SERVER=$2; shift 2 ;;
+    all) shift ;;
+    -h|--help) sed -n '2,4p' "$0"; exit 0 ;;
+    *) STREAMS+=("$1"); shift ;;
+  esac
+done
+[ ${#STREAMS[@]} -gt 0 ] || STREAMS=(low medium high)
+rc=0
+for s in "${STREAMS[@]}"; do
+  url="rtsp://$SERVER:8554/$s"
+  echo "== $url  (rtp over $TRANSPORT, ${DURATION}s)"
+  log=$(ffmpeg -hide_banner -nostats -loglevel info -rtsp_transport "$TRANSPORT" -i "$url" -t "$DURATION" -f null - 2>&1)
+  awk '/Stream mapping|Output #0/ {exit} /^ +Stream #0/ {sub(/^ +/, "   "); print}' <<< "$log"   # input streams only
+  frames=$(grep -oE 'frame= *[0-9]+' <<< "$log" | tail -1 | tr -dc 0-9)
+  if [ -n "$frames" ] && [ "$frames" -gt 0 ]; then
+    echo "   received $frames video frames in ${DURATION}s"
+  else
+    echo "   FAILED: $(grep -iE 'error|refused|timed out|not found' <<< "$log" | head -2 | tr '\n' ' ')"
+    rc=1
+  fi
+done
+exit $rc
