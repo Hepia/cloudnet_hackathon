@@ -29,6 +29,7 @@ RUN if ls /tmp/pkg/*.deb >/dev/null 2>&1; then \
 #     needs in the background, custom-run sends the requests, custom-serve answers them on the server.
 #     Add COPY lines for anything else
 #     (configs, data, scripts).
+COPY users.json /etc/mirai/db/users.json
 COPY entrypoint.sh /custom/
 COPY custom-run /usr/local/bin/
 RUN chmod +x /custom/*.sh /usr/local/bin/custom-run

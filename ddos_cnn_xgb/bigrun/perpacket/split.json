@@ -1,0 +1,7 @@
+{
+    "test_size": 0.33,
+    "seed": 42,
+    "n_windows": 410766,
+    "train_cap": 150000,
+    "train_used": 150000
+}

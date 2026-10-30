@@ -1,5 +1,35 @@
 # DDoS_CNN_xgb
 
+> **Hackathon contribution (per-packet detector).** The sections further down document
+> the original toolkit. This block documents what was added for the NATWORK hackathon:
+> a per-packet CNN that meets the KPIs, plus a memory-safe, reproducible pipeline over
+> the real `datasets/pcap_big/` captures. For the lab that produces the traffic see
+> `../infrastructure/README.md`; for the datasets and label rule see `../datasets/README.md`;
+> for the trained model and KPI numbers see [`bigrun/README.md`](bigrun/README.md); for the
+> end-to-end walkthrough see [`../REPRODUCE.md`](../REPRODUCE.md).
+>
+> **New scripts**
+> | Script | Role |
+> |--------|------|
+> | `fast_convert_pcap.py` | streaming, memory-safe pcap→HDF5 (mmap, no scapy); same UE-IP label rule, scales to many GB |
+> | `split_windows_stream.py` | streaming windowing + per-window MAC/IP byte randomisation |
+> | `build_mixed_windows.py` | pools captured packets by label and composes windows with a **fluctuating** per-window attack fraction averaging ~30 %, address-randomised |
+> | `train_model.py` | trains either architecture (`--arch run003|perpacket`, `--loss mse|bce`) |
+> | `evaluate_compare.py` | scores several models on one identical held-out split; writes `comparison.csv` |
+> | `run_final_pipeline.sh` | compose → train baseline + per-packet → compare, in one command |
+>
+> **The two architectures** (`train_model.py`) — both take a 100-packet window
+> `(100,64,1)` and output one score per packet `(100,)`, so the pipeline is unchanged:
+> | Model | Head | Params | NATWORK FP<1 % & FN<1 % |
+> |-------|------|-------:|:-----------------------:|
+> | `run003` (shipped) | `Flatten → Dense(100)`, 3×3 convs — blends the whole window | 670,820 | ❌ (FP 55.7 %, FN 36.7 %) |
+> | **`perpacket` (new)** | all `(1×k)` convs + per-packet `Dense(1)` — never cross the packet axis | **38,417** | ✅ (FP 0.0001 %, FN 0.009 %) |
+>
+> The per-packet head classifies each packet independently, so interleaved
+> benign/attack windows and randomised addresses no longer confuse it — which is why it
+> passes where retraining the global-window head does not. Full numbers and confusion
+> matrices: [`bigrun/README.md`](bigrun/README.md).
+
 # Repository Structure
 
 ```text

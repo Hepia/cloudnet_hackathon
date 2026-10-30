@@ -1,0 +1,20 @@
+# ---- Large datasets & captures (too big for GitHub) ----
+# Regenerate with datasets/generate_final.sh — see REPRODUCE.md.
+datasets/pcap_big/
+datasets/pcap.1/
+infrastructure/captures/
+*.pcapng
+
+# ---- Composed windowed dataset & pooling temporaries (2.7 GB) ----
+# Rebuild with ddos_cnn_xgb/build_mixed_windows.py — see REPRODUCE.md.
+ddos_cnn_xgb/bigrun/*.h5
+ddos_cnn_xgb/bigrun/*.pool.h5
+*.pool.h5
+
+# ---- Python / virtualenv / caches ----
+.venv/
+__pycache__/
+*.pyc
+
+# ---- Editor / lock files ----
+.~lock.*#

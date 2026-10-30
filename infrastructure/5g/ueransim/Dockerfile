@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 RUN git clone --depth 1 --branch "${UERANSIM_VERSION}" https://github.com/aligungr/UERANSIM.git /src/ueransim
 WORKDIR /src/ueransim
+COPY 5g/ueransim/patch/ /src/ueransim/src/
 RUN make -j"$(nproc)"
 
 FROM ubuntu:22.04

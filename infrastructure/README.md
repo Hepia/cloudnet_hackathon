@@ -225,6 +225,44 @@ both containers pick up the new image):
 8. `lab.sh`: the `custom` steps in `test` and `run`, and the ports counted in the `custom` column of
    `pcap_breakdown` (1234, 1235) if yours differ.
 
+## This hackathon: Mirai attack + the UERANSIM uplink patch
+
+The generic lab above is specialised for the DDoS-detection hackathon in two ways. Both
+are already built into the images; this section documents them.
+
+**The custom generator is a real Mirai botnet.** `custom/pkg/` holds
+`mirai-bot-and-cnc_1.0_amd64.deb` (CNC + bot), so block (2) of `custom/Dockerfile`
+installs Mirai into both `custom` and `custom-client`. `custom/entrypoint.sh` starts the
+Mirai **CNC first and waits until it listens on `:23`**, then starts the **bot** (started
+in the other order the bot's first connect fails and only recovers after a long backoff).
+`custom/users.json` is overlaid to `/etc/mirai/db/users.json` with the SLA/QoS caps
+removed (`cooldown=0`, `duration_limit=3600`, `max_bots=-1`) so floods are not throttled.
+Because the bot runs in the UE namespace, its **SYN flood crosses the real 5G user plane**
+(UE → gNB → UPF → router → target `10.10.1.50`). `custom-run` authenticates to the CNC and
+issues the flood command:
+
+```
+docker exec custom-client sh -c 'ss -nt | grep ":23 "'   # bot <-> CNC established
+docker exec -d custom-client custom-run -t 30 -i 1 -d 30 # task a 30 s SYN flood
+```
+
+**The UERANSIM UE uplink is patched so the flood survives capture.** Stock UERANSIM
+v3.2.7 wedged the UE uplink to ~0 packets under the flood: the single-threaded
+`TUN → appTask → nasTask (per-packet NAS ciphering) → RLS → UDP` chain uses **unbounded**
+queues, so the `nasTask` backlog grew without bound and the tunnel stalled — captures
+looked full (wired benign kept flowing) but held **no attack packets**. The patch in
+`5g/ueransim/patch/` adds `NtsTask::pendingCount()` and makes the TUN receiver **drop
+uplink packets once the `nasTask` backlog exceeds 4096**, bounding the queue so the tunnel
+stays live. It is overlaid onto the UERANSIM source before `make` in
+`5g/ueransim/Dockerfile`, i.e. compiled in by `./lab.sh up` — nothing to run by hand.
+
+> If the UE ever wedges or comes up with the wrong address, do a **full reset**
+> (`./lab.sh down && ./lab.sh up`); an in-place `docker restart` gives the UE a new IP and
+> breaks routing.
+
+Capturing, labelling and composing this traffic into datasets is covered in
+`../datasets/README.md`; the detector that consumes them is in `../ddos_cnn_xgb/README.md`.
+
 ## Layout
 
 ```

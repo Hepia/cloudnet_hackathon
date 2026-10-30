@@ -1,0 +1,22 @@
+{
+  "users": [
+    {
+      "username": "yoda",
+      "password": "mTRDewV21GcD",
+      "duration_limit": 3600,
+      "cooldown": 0,
+      "max_bots": -1,
+      "admin": 1,
+      "api_key": "c278ec5a69c34aace42773e41b1163e6ce40c906f2a14f807d39d1b2a1c2dff5"
+    },
+    {
+      "username": "chewbacca",
+      "password": "35j1zd5yyX6R",
+      "duration_limit": 3600,
+      "cooldown": 0,
+      "max_bots": -1,
+      "admin": 0,
+      "api_key": "eefd0d7defd4cb5a881d5e8b5dd21b3d3ee1b0e32773d4246caa7734fe231e69"
+    }
+  ]
+}
